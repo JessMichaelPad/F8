@@ -4,26 +4,45 @@
 #MaxHotkeysPerInterval 200
 #WinActivateForce
 
+;@Ahk2Exe-SetDescription F8
+;@Ahk2Exe-SetName F8
+
 SetWorkingDir %A_ScriptDir%
 SetWinDelay, -1
+
+; --- Global Data Paths ---
+global AppDataDir := A_AppData . "\F8"
+global SettingsPath := AppDataDir . "\settings.ini"
+global LogPath := AppDataDir . "\f8.log"
+
+if (!FileExist(AppDataDir))
+    FileCreateDir, %AppDataDir%
+
+; --- Startup Logging ---
+LogMsg("--- F8 Startup ---")
+LogMsg("Version: 1.0.0")
+LogMsg("ScriptDir: " . A_ScriptDir)
+LogMsg("WorkingDir: " . A_WorkingDir)
 
 ; Initialize GDI+
 If !pToken := Gdip_Startup()
 {
-    MsgBox, 48, gdiplus error!, Gdiplus failed to start. Please ensure you have Gdip_All.ahk on your system
+    LogMsg("ERROR: GDI+ failed to start.")
+    MsgBox, 48, gdiplus error!, Gdiplus failed to start.
     ExitApp
 }
 OnExit("ExitFunc")
 
 ; System Tray Icon
-IfExist, F8.ico
-    Menu, Tray, Icon, F8.ico
+iconPath := A_ScriptDir . "\F8.ico"
+IfExist, %iconPath%
+    Menu, Tray, Icon, %iconPath%
 Else
     Menu, Tray, Icon, shell32.dll, 44
 
 ; Load icon handle for GUI windows
-global hIconSmall := DllCall("LoadImage", "UInt", 0, "Str", A_ScriptDir . "\F8.ico", "UInt", 1, "Int", 16, "Int", 16, "UInt", 0x10)
-global hIconBig := DllCall("LoadImage", "UInt", 0, "Str", A_ScriptDir . "\F8.ico", "UInt", 1, "Int", 32, "Int", 32, "UInt", 0x10)
+global hIconSmall := DllCall("LoadImage", "UInt", 0, "Str", iconPath, "UInt", 1, "Int", 16, "Int", 16, "UInt", 0x10)
+global hIconBig := DllCall("LoadImage", "UInt", 0, "Str", iconPath, "UInt", 1, "Int", 32, "Int", 32, "UInt", 0x10)
 
 ; --- 1. Global Instances ---
 global AppManager := new WindowManager()
@@ -38,7 +57,14 @@ return
 
 ExitFunc() {
     global pToken
+    LogMsg("--- F8 Shutdown ---")
     Gdip_Shutdown(pToken)
+}
+
+LogMsg(msg) {
+    global LogPath
+    FormatTime, ts,, yyyy-MM-dd HH:mm:ss
+    FileAppend, [%ts%] %msg%`n, %LogPath%
 }
 
 ; -------------------------------------------------------------------------
@@ -88,11 +114,11 @@ return
         AppManager.ToggleSnap(hwnd)
 return
 
-; Toggle Ghost Mode (Alt + 3)
+; Transfer Display (Alt + 3)
 !3::
     hwnd := WinExist("A")
     if (AppManager.CanManage(hwnd))
-        AppManager.ToggleGhost(hwnd)
+        AppManager.TransferDisplay(hwnd)
 return
 
 ; Information Display (Alt + I)
@@ -106,13 +132,15 @@ return
     (
     Command Shortcuts:
     Alt + H: Help
-    Alt + P: Pin/Mark (Red Dot)
-    Alt + L: Lock (Blue Lock)
-    Alt + 2: Capture Window Settings
-    Alt + 1: Snap/Mark (Apply Settings)
-    Alt + UP/DN: Transparency
-    Alt + ~: Settings + Revert List
-    Alt + I: Info
+    Alt + P: Pin / Always On Top (Red Dot)
+    Alt + L: Lock Window (Blue Lock)
+    Alt + 1: Snap Menu (Select Zone)
+    Alt + 2: Capture Menu (Save Current)
+    Alt + 3: Transfer to Next Display
+    Alt + UP/DN: Adjust Transparency
+    Alt + ~: Settings Dashboard
+    Alt + I: Window Information
+    Ctrl + Alt + Arrows: Rotate Display
     )
     ToolTip, %HelpText%
     SetTimer, CloseToolTip, 6000

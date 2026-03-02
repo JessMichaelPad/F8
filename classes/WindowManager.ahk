@@ -11,7 +11,8 @@ class WindowManager {
     
     ; --- File I/O ---
     LoadExcludedApps() {
-        IniRead, AppList, settings.ini, ExcludedApps, List, %A_Space%
+        global SettingsPath
+        IniRead, AppList, %SettingsPath%, ExcludedApps, List, %A_Space%
         if (AppList != "") {
             Loop, Parse, AppList, |
             {
@@ -29,18 +30,20 @@ class WindowManager {
             else
                 OutList .= "|" . procName
         }
-        IniWrite, %OutList%, settings.ini, ExcludedApps, List
+        global SettingsPath
+        IniWrite, %OutList%, %SettingsPath%, ExcludedApps, List
     }
     
     LoadSnapSettings() {
+        global SettingsPath
         this.SnapZones := {}
-        IniRead, ZoneList, settings.ini, SnapZones, List, %A_Space%
+        IniRead, ZoneList, %SettingsPath%, SnapZones, List, %A_Space%
         if (ZoneList != "") {
             Loop, Parse, ZoneList, |
             {
                 if (A_LoopField = "")
                     continue
-                IniRead, val, settings.ini, SnapZones, %A_LoopField%, %A_Space%
+                IniRead, val, %SettingsPath%, SnapZones, %A_LoopField%, %A_Space%
                 if (val != "") {
                     parts := StrSplit(val, ",")
                     if (parts.Length() >= 5) {
@@ -54,21 +57,23 @@ class WindowManager {
     
     SaveSnapSettings() {
         OutList := ""
+        global SettingsPath
         for name, data in this.SnapZones {
             val := data.x . "," . data.y . "," . data.w . "," . data.h . "," . data.t
-            IniWrite, %val%, settings.ini, SnapZones, %name%
+            IniWrite, %val%, %SettingsPath%, SnapZones, %name%
             if (OutList = "")
                 OutList := name
             else
                 OutList .= "|" . name
         }
-        IniWrite, %OutList%, settings.ini, SnapZones, List
+        IniWrite, %OutList%, %SettingsPath%, SnapZones, List
     }
     
     DeleteZone(name) {
+        global SettingsPath
         if (this.SnapZones.HasKey(name)) {
             this.SnapZones.Delete(name)
-            IniDelete, settings.ini, SnapZones, %name%
+            IniDelete, %SettingsPath%, SnapZones, %name%
             this.SaveSnapSettings()
         }
     }
