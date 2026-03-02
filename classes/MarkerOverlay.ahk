@@ -1,5 +1,6 @@
 class MarkerOverlay {
     __New(target) {
+        global overlayId
         this.TargetHwnd := target
         Gui, New, -Caption +E0x80000 +E0x20 +LastFound +AlwaysOnTop +ToolWindow +OwnDialogs +HwndoverlayId
         this.OverlayHwnd := overlayId

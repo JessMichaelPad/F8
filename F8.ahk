@@ -1,6 +1,10 @@
 ﻿#Persistent
 #NoEnv
 #SingleInstance Force
+#MaxHotkeysPerInterval 200
+#WinActivateForce
+
+SetWorkingDir %A_ScriptDir%
 SetWinDelay, -1
 
 ; Initialize GDI+
@@ -15,7 +19,11 @@ OnExit("ExitFunc")
 IfExist, F8.ico
     Menu, Tray, Icon, F8.ico
 Else
-    Menu, Tray, Icon, shell32.dll, 44 
+    Menu, Tray, Icon, shell32.dll, 44
+
+; Load icon handle for GUI windows
+global hIconSmall := DllCall("LoadImage", "UInt", 0, "Str", A_ScriptDir . "\F8.ico", "UInt", 1, "Int", 16, "Int", 16, "UInt", 0x10)
+global hIconBig := DllCall("LoadImage", "UInt", 0, "Str", A_ScriptDir . "\F8.ico", "UInt", 1, "Int", 32, "Int", 32, "UInt", 0x10)
 
 ; --- 1. Global Instances ---
 global AppManager := new WindowManager()
@@ -137,28 +145,50 @@ SettingsGuiEscape:
     AppGUI.Hide()
 return
 
-GUICb_Apply:
+GUICb_SaveZone:
     Gui, SettingsGui:Submit, NoHide
-    global NewX, NewY, NewWidth, NewHeight, NewTransparency
-    AppManager.SnapX := NewX
-    AppManager.SnapY := NewY
-    AppManager.SnapW := NewWidth
-    AppManager.SnapH := NewHeight
-    AppManager.SnapT := NewTransparency
+    global NewX, NewY, NewWidth, NewHeight, NewTransparency, SelectedZoneName
+    SelectedZoneName := Trim(SelectedZoneName)
+    if (SelectedZoneName = "") {
+        ToolTip, Please enter a Name for this Zone first!
+        SetTimer, CloseToolTip, -2000
+        return
+    }
+    AppManager.SnapZones[SelectedZoneName] := {x: NewX, y: NewY, w: NewWidth, h: NewHeight, t: NewTransparency}
     AppManager.SaveSnapSettings()
-    AppGUI.UpdateDashboard()
+    AppGUI.UpdateZonesList(SelectedZoneName)
+    ToolTip, Zone '%SelectedZoneName%' Saved!
+    SetTimer, CloseToolTip, -2000
+return
+
+GUICb_DeleteZone:
+    Gui, SettingsGui:Submit, NoHide
+    global SelectedZoneName
+    if (SelectedZoneName = "")
+        return
+    AppGUI.ShowConfirmDelete(SelectedZoneName)
+return
+
+GUICb_SelectZone:
+    Gui, SettingsGui:Submit, NoHide
+    global ZoneList
+    if (AppManager.SnapZones.HasKey(ZoneList)) {
+        zone := AppManager.SnapZones[ZoneList]
+        GuiControl, SettingsGui:, SelectedZoneName, %ZoneList%
+        GuiControl, SettingsGui:, NewX, % zone.x
+        GuiControl, SettingsGui:, NewY, % zone.y
+        GuiControl, SettingsGui:, NewWidth, % zone.w
+        GuiControl, SettingsGui:, NewHeight, % zone.h
+        GuiControl, SettingsGui:, NewTransparency, % zone.t
+    }
 return
 
 GUICb_Capture:
     AppGUI.Hide()
-    MsgBox, 64, Capture, Switch to the window you want to capture and press Alt+2 instead!
+    AppManager.CaptureSettings()
     AppGUI.Show()
 return
-
-GUICb_Refresh:
-    AppGUI.UpdateDashboard()
-return
-
+ 
 GUICb_Revert:
     if RegExMatch(A_GuiControl, "^RevertBtn_(\d+)$", m) {
         idx := m1 + 0
@@ -187,6 +217,83 @@ GUICb_Ignore:
             AppGUI.UpdateDashboard()
         }
     }
+return
+
+; --- Quick Picker Callbacks ---
+GUICb_QuickPickerSelect:
+    if (A_GuiEvent = "DoubleClick")
+        Gosub, GUICb_QuickPickerConfirm
+return
+
+GUICb_QuickPickerConfirm:
+    Gui, QuickPicker:Submit
+    global QuickPickerList
+    choice := QuickPickerList
+    action := AppGUI.QuickPickerAction
+    
+    if (action = "Snap") {
+        if (!AppManager.SnapZones.HasKey(choice)) {
+            ToolTip, Zone not found!
+            SetTimer, CloseToolTip, -2000
+            return
+        }
+        zone := AppManager.SnapZones[choice]
+        hwnd := AppManager.PendingHwnd
+        state := AppManager.GetState(hwnd)
+        
+        WinGetPos, ox, oy, ow, oh, ahk_id %hwnd%
+        state.OX := ox, state.OY := oy, state.OW := ow, state.OH := oh
+        state.isSnapped := true
+        state.currentZone := choice
+        
+        AppManager.EnsureWindowedForMove(hwnd)
+        AppManager.MoveWindowReliable(hwnd, zone.x, zone.y, zone.w, zone.h)
+        WinSet, Transparent, % zone.t, ahk_id %hwnd%
+        Winset, Alwaysontop, On, ahk_id %hwnd%
+        Winset, exStyle, +0x20, ahk_id %hwnd%
+        AppManager.UpdateOverlay(hwnd)
+        
+    } else if (action = "Capture") {
+        finalName := choice
+        if (choice = "[Add New Zone]") {
+            Gui, QuickPicker:+OwnDialogs
+            InputBox, newName, New Zone, Enter a name for your new snap zone:,, 250, 130
+            if (ErrorLevel || newName = "") {
+                Gui, QuickPicker:Destroy
+                return
+            }
+            finalName := newName
+        }
+        
+        cap := AppManager.PendingCapture
+        AppManager.SnapZones[finalName] := {x: cap.x, y: cap.y, w: cap.w, h: cap.h, t: cap.t}
+        AppManager.SaveSnapSettings()
+        AppGUI.UpdateZonesList()
+        ToolTip, Zone '%finalName%' Saved!
+        SetTimer, CloseToolTip, -2000
+    }
+    
+    AppGUI.HideQuickPicker()
+return
+
+GUICb_QuickPickerCancel:
+QuickPickerGuiClose:
+QuickPickerGuiEscape:
+    AppGUI.HideQuickPicker()
+return
+
+GUICb_ConfirmDeleteYes:
+    zone := AppGUI.PendingDeleteZone
+    AppManager.DeleteZone(zone)
+    AppGUI.UpdateZonesList()
+    GuiControl, SettingsGui:, SelectedZoneName, 
+    AppGUI.HideConfirmDelete()
+return
+
+GUICb_ConfirmDeleteNo:
+ConfirmGuiClose:
+ConfirmGuiEscape:
+    AppGUI.HideConfirmDelete()
 return
 
 #Include Gdip_All.ahk

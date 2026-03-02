@@ -4,14 +4,9 @@ class WindowManager {
         this.WindowStates := {}
         this.ExcludedApps := {}
         
-        this.SnapX := ""
-        this.SnapY := ""
-        this.SnapW := ""
-        this.SnapH := ""
-        this.SnapT := 179
-        
-        this.LoadExcludedApps()
+        this.SnapZones := {}
         this.LoadSnapSettings()
+        this.LoadExcludedApps()
     }
     
     ; --- File I/O ---
@@ -38,24 +33,44 @@ class WindowManager {
     }
     
     LoadSnapSettings() {
-        IniRead, x, settings.ini, Settings, NewX, %A_Space%
-        IniRead, y, settings.ini, Settings, NewY, %A_Space%
-        IniRead, w, settings.ini, Settings, NewWidth, %A_Space%
-        IniRead, h, settings.ini, Settings, NewHeight, %A_Space%
-        IniRead, t, settings.ini, Settings, NewTransparency, 179
-        this.SnapX := x
-        this.SnapY := y
-        this.SnapW := w
-        this.SnapH := h
-        this.SnapT := t
+        this.SnapZones := {}
+        IniRead, ZoneList, settings.ini, SnapZones, List, %A_Space%
+        if (ZoneList != "") {
+            Loop, Parse, ZoneList, |
+            {
+                if (A_LoopField = "")
+                    continue
+                IniRead, val, settings.ini, SnapZones, %A_LoopField%, %A_Space%
+                if (val != "") {
+                    parts := StrSplit(val, ",")
+                    if (parts.Length() >= 5) {
+                        this.SnapZones[A_LoopField] := {x: parts[1], y: parts[2], w: parts[3], h: parts[4], t: parts[5]}
+                    }
+                }
+            }
+        }
+        
     }
     
     SaveSnapSettings() {
-        IniWrite, % this.SnapX, settings.ini, Settings, NewX
-        IniWrite, % this.SnapY, settings.ini, Settings, NewY
-        IniWrite, % this.SnapW, settings.ini, Settings, NewWidth
-        IniWrite, % this.SnapH, settings.ini, Settings, NewHeight
-        IniWrite, % this.SnapT, settings.ini, Settings, NewTransparency
+        OutList := ""
+        for name, data in this.SnapZones {
+            val := data.x . "," . data.y . "," . data.w . "," . data.h . "," . data.t
+            IniWrite, %val%, settings.ini, SnapZones, %name%
+            if (OutList = "")
+                OutList := name
+            else
+                OutList .= "|" . name
+        }
+        IniWrite, %OutList%, settings.ini, SnapZones, List
+    }
+    
+    DeleteZone(name) {
+        if (this.SnapZones.HasKey(name)) {
+            this.SnapZones.Delete(name)
+            IniDelete, settings.ini, SnapZones, %name%
+            this.SaveSnapSettings()
+        }
     }
     
     ; --- Validation / Checking ---
@@ -162,34 +177,24 @@ class WindowManager {
     }
     
     ToggleSnap(hwnd) {
-        this.LoadSnapSettings()
         state := this.GetState(hwnd)
         state.lastTrigger := "snap"
         
         if (state.isSnapped) {
             this.RevertSnapped(hwnd)
             this.UpdateOverlay(hwnd)
-        } else {
-            WinGetPos, ox, oy, ow, oh, ahk_id %hwnd%
-            state.OX := ox
-            state.OY := oy
-            state.OW := ow
-            state.OH := oh
-            state.isSnapped := true
-            
-            TargetX := (this.SnapX = "" ? ox : this.SnapX)
-            TargetY := (this.SnapY = "" ? oy : this.SnapY)
-            TargetW := (this.SnapW = "" ? ow : this.SnapW)
-            TargetH := (this.SnapH = "" ? oh : this.SnapH)
-            
-            this.EnsureWindowedForMove(hwnd)
-            this.MoveWindowReliable(hwnd, TargetX, TargetY, TargetW, TargetH)
-            WinSet, Transparent, % this.SnapT, ahk_id %hwnd%
-            Winset, Alwaysontop, On, ahk_id %hwnd%
-            Winset, exStyle, +0x20, ahk_id %hwnd%
-            
-            this.UpdateOverlay(hwnd)
+            return
         }
+
+        global AppGUI
+        if (AppGUI.VisibleQuickPicker = "Snap") {
+            AppGUI.HideQuickPicker()
+            return
+        }
+
+        this.PendingHwnd := hwnd
+        WinGet, procName, ProcessName, ahk_id %hwnd%
+        AppGUI.ShowQuickPicker("Snap", procName)
     }
     
     ToggleGhost(hwnd) {
@@ -198,13 +203,18 @@ class WindowManager {
         
         wasFull := this.EnsureWindowedForMove(hwnd)
         if (wasFull) {
-            this.LoadSnapSettings()
-            WinGetPos, cx, cy, cw, ch, ahk_id %hwnd%
-            tx := (this.SnapX = "" ? cx : this.SnapX)
-            ty := (this.SnapY = "" ? cy : this.SnapY)
-            tw := (this.SnapW = "" ? cw : this.SnapW)
-            th := (this.SnapH = "" ? ch : this.SnapH)
-            this.MoveWindowReliable(hwnd, tx, ty, tw, th)
+            ; Just use first available zone or default if ghosted from fullscreen
+            zone := this.SnapZones.HasKey("Default") ? this.SnapZones["Default"] : ""
+            if (!zone) {
+                for k, v in this.SnapZones {
+                    zone := v
+                    break
+                }
+            }
+            
+            if (zone) {
+                this.MoveWindowReliable(hwnd, zone.x, zone.y, zone.w, zone.h)
+            }
         }
         
         WinGet, es, ExStyle, ahk_id %hwnd%
@@ -229,28 +239,24 @@ class WindowManager {
     
     CaptureSettings() {
         hwnd := WinExist("A")
-        WinGetPos, cX, cY, cW, cH, ahk_id %hwnd%
-        WinGet, cT, Transparent, ahk_id %hwnd%
-        if (cT = "")
-            cT := 255
-            
-        MsgBox, 36, Confirm Capture, Are you sure you want to overwrite snap settings?`n`nPos: %cX%`, %cY%`nSize: %cW%x%cH%`nTrans: %cT%
-        IfMsgBox, No
+        if (!this.CanManage(hwnd))
             return
             
-        this.SnapX := cX
-        this.SnapY := cY
-        this.SnapW := cW
-        this.SnapH := cH
-        this.SnapT := cT
-        this.SaveSnapSettings()
-        
-        ToolTip, Settings Captured!`nPos: %cX%`,%cY%`nSize: %cW%x%cH%`nTrans: %cT%
-        SetTimer, CloseToolTip, 2000
-        
         global AppGUI
-        if (AppGUI.Visible)
-            AppGUI.UpdateDashboard()
+        if (AppGUI.VisibleQuickPicker = "Capture") {
+            AppGUI.HideQuickPicker()
+            return
+        }
+
+        WinGetPos, cX, cY, cW, cH, ahk_id %hwnd%
+        WinGet, cT, Transparent, ahk_id %hwnd%
+        if (cT = "" || cT = 255)
+            cT := 255
+            
+        WinGet, procName, ProcessName, ahk_id %hwnd%
+        this.PendingHwnd := hwnd
+        this.PendingCapture := {x: cX, y: cY, w: cW, h: cH, t: cT}
+        AppGUI.ShowQuickPicker("Capture", procName)
     }
     
     ShowInfo() {
