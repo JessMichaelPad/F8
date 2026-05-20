@@ -7,6 +7,9 @@ class F8AppGUI {
         this.QuickPickerAction := ""
         this.VisibleQuickPicker := ""
         this.PendingDeleteZone := ""
+        this.QuickPickerHwnd := ""
+        this.QuickPickerItems := []
+        this.QuickPickerSelectionIndex := 0
     }
     
     Toggle() {
@@ -262,24 +265,20 @@ class F8AppGUI {
         global QuickPickerList
         this.QuickPickerAction := action
         this.VisibleQuickPicker := action
+        this.BuildQuickPickerItems(action)
         
         Title := (action = "Capture") ? "Quick Capture - " : "Quick Snap - "
         Title .= (appName != "") ? appName : "Select Slot"
         
         Gui, QuickPicker:New, +AlwaysOnTop -MaximizeBox -MinimizeBox +HwndpickerHwnd, %Title%
+        this.QuickPickerHwnd := pickerHwnd
         global hIconSmall, hIconBig
         if (hIconSmall)
             SendMessage, 0x80, 0, hIconSmall,, ahk_id %pickerHwnd%
         if (hIconBig)
             SendMessage, 0x80, 1, hIconBig,, ahk_id %pickerHwnd%
         
-        ZoneString := ""
-        if (action = "Capture")
-            ZoneString .= "[Add New Zone]|"
-            
-        for name in this.Manager.SnapZones {
-            ZoneString .= name . "|"
-        }
+        ZoneString := this.BuildQuickPickerListString()
         
         Gui, QuickPicker:Add, ListBox, x10 y10 w200 h120 vQuickPickerList gGUICb_QuickPickerSelect, %ZoneString%
         Gui, QuickPicker:Add, Button, x10 y140 w95 h26 default gGUICb_QuickPickerConfirm, Confirm
@@ -289,14 +288,157 @@ class F8AppGUI {
         CoordMode, Mouse, Screen
         MouseGetPos, mx, my
         Gui, QuickPicker:Show, x%mx% y%my% w220 h175
+        this.SetQuickPickerSelection(this.GetInitialQuickPickerIndex())
     }
     
     HideQuickPicker() {
         Try Gui, QuickPicker:Destroy
         this.VisibleQuickPicker := ""
+        this.QuickPickerHwnd := ""
+        this.QuickPickerItems := []
+        this.QuickPickerSelectionIndex := 0
         if (this.Manager.PendingHwnd && WinExist("ahk_id " . this.Manager.PendingHwnd)) {
             WinActivate, % "ahk_id " . this.Manager.PendingHwnd
         }
+    }
+
+    SendQuickPickerKey(key) {
+        hwnd := this.QuickPickerHwnd
+        if (!hwnd || !WinExist("ahk_id " . hwnd))
+            return
+
+        ControlFocus, ListBox1, % "ahk_id " . hwnd
+        ControlSend, ListBox1, %key%, % "ahk_id " . hwnd
+    }
+
+    BuildQuickPickerItems(action) {
+        items := []
+        if (action = "Capture")
+            items.Push({name: "[Add New Zone]", isSpecial: true})
+
+        for name, zone in this.Manager.SnapZones {
+            centerX := zone.x + (zone.w / 2)
+            centerY := zone.y + (zone.h / 2)
+            items.Push({name: name, x: zone.x, y: zone.y, w: zone.w, h: zone.h, centerX: centerX, centerY: centerY, isSpecial: false})
+        }
+
+        this.QuickPickerItems := items
+    }
+
+    BuildQuickPickerListString() {
+        list := ""
+        for _, item in this.QuickPickerItems
+            list .= item.name . "|"
+        return list
+    }
+
+    GetInitialQuickPickerIndex() {
+        items := this.QuickPickerItems
+        if (items.Length() = 0)
+            return 0
+
+        if (this.QuickPickerAction = "Capture" && items[1].isSpecial)
+            return (items.Length() >= 2) ? 2 : 1
+        return 1
+    }
+
+    SetQuickPickerSelection(index) {
+        items := this.QuickPickerItems
+        if (index < 1 || index > items.Length())
+            return
+
+        this.QuickPickerSelectionIndex := index
+        GuiControl, QuickPicker:Choose, QuickPickerList, %index%
+    }
+
+    GetQuickPickerSelectionIndex() {
+        Gui, QuickPicker:Submit, NoHide
+        global QuickPickerList
+
+        if (this.QuickPickerItems.Length() = 0)
+            return 0
+
+        if (QuickPickerList != "") {
+            for idx, item in this.QuickPickerItems {
+                if (item.name = QuickPickerList) {
+                    this.QuickPickerSelectionIndex := idx
+                    return idx
+                }
+            }
+        }
+
+        if (this.QuickPickerSelectionIndex >= 1 && this.QuickPickerSelectionIndex <= this.QuickPickerItems.Length())
+            return this.QuickPickerSelectionIndex
+
+        idx := this.GetInitialQuickPickerIndex()
+        this.SetQuickPickerSelection(idx)
+        return idx
+    }
+
+    SelectQuickPickerDirection(direction) {
+        currentIndex := this.GetQuickPickerSelectionIndex()
+        if (currentIndex = 0)
+            return
+
+        currentItem := this.QuickPickerItems[currentIndex]
+        refPoint := this.GetQuickPickerReferencePoint(currentItem)
+        bestIndex := this.FindDirectionalQuickPickerIndex(refPoint.x, refPoint.y, direction)
+        if (bestIndex)
+            this.SetQuickPickerSelection(bestIndex)
+    }
+
+    GetQuickPickerReferencePoint(currentItem) {
+        if (!currentItem.isSpecial)
+            return {x: currentItem.centerX, y: currentItem.centerY}
+
+        hwnd := this.Manager.PendingHwnd
+        if (hwnd && WinExist("ahk_id " . hwnd)) {
+            WinGetPos, x, y, w, h, ahk_id %hwnd%
+            return {x: x + (w / 2), y: y + (h / 2)}
+        }
+
+        return {x: 0, y: 0}
+    }
+
+    FindDirectionalQuickPickerIndex(refX, refY, direction) {
+        bestIndex := 0
+        bestScore := ""
+
+        for idx, item in this.QuickPickerItems {
+            if (item.isSpecial)
+                continue
+
+            dx := item.centerX - refX
+            dy := item.centerY - refY
+
+            if (direction = "Left") {
+                if (dx >= 0)
+                    continue
+                primary := Abs(dx), secondary := Abs(dy)
+            } else if (direction = "Right") {
+                if (dx <= 0)
+                    continue
+                primary := Abs(dx), secondary := Abs(dy)
+            } else if (direction = "Up") {
+                if (dy >= 0)
+                    continue
+                primary := Abs(dy), secondary := Abs(dx)
+            } else if (direction = "Down") {
+                if (dy <= 0)
+                    continue
+                primary := Abs(dy), secondary := Abs(dx)
+            } else {
+                continue
+            }
+
+            score := (primary * 10000) + secondary
+            if (bestScore = "" || score < bestScore) {
+                bestScore := score
+                bestIndex := idx
+            }
+        }
+
+        return bestIndex
     }
 
     ShowConfirmDelete(zoneName) {

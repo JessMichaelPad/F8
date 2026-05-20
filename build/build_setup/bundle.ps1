@@ -1,13 +1,20 @@
 # F8 Bundler
 # Merges all #Include files into a single script for easier compilation.
 
+$ErrorActionPreference = "Stop"
+
 $rootFile = Join-Path $PSScriptRoot "..\..\F8.ahk"
 $outFile = Join-Path $PSScriptRoot "..\artifacts\F8_bundled.ahk"
 $sourceDir = Join-Path $PSScriptRoot "..\.."
+$outDir = Split-Path -Parent $outFile
 
 if (!(Test-Path $rootFile)) {
     Write-Error "Could not find root file: $rootFile"
     exit 1
+}
+
+if (!(Test-Path $outDir)) {
+    New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 }
 
 $content = Get-Content $rootFile

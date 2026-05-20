@@ -135,6 +135,7 @@ return
     Alt + P: Pin / Always On Top (Red Dot)
     Alt + L: Lock Window (Blue Lock)
     Alt + 1: Snap Menu (Select Zone)
+    Quick Snap: W/A/S/D move, Space confirms
     Alt + 2: Capture Menu (Save Current)
     Alt + 3: Transfer to Next Display
     Alt + UP/DN: Adjust Transparency
@@ -153,6 +154,28 @@ return
 #IfWinExist ahk_class tooltips_class32
     ~LButton::ToolTip
 #IfWinExist
+
+#If (IsObject(AppGUI) && AppGUI.VisibleQuickPicker != "")
+a::
+    AppGUI.SendQuickPickerKey("{Left}")
+return
+
+d::
+    AppGUI.SendQuickPickerKey("{Right}")
+return
+
+w::
+    AppGUI.SendQuickPickerKey("{Up}")
+return
+
+s::
+    AppGUI.SendQuickPickerKey("{Down}")
+return
+
+Space::
+    AppGUI.SendQuickPickerKey("{Enter}")
+return
+#If
 
 ; Screen Orientation
 ^!Down::AppManager.ChangeScreenOrientation(0)
