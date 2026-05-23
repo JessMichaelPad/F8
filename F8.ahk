@@ -1,4 +1,4 @@
-﻿#Persistent
+#Persistent
 #NoEnv
 #SingleInstance Force
 #MaxHotkeysPerInterval 200
@@ -47,6 +47,7 @@ global hIconBig := DllCall("LoadImage", "UInt", 0, "Str", iconPath, "UInt", 1, "
 ; --- 1. Global Instances ---
 global AppManager := new WindowManager()
 global AppGUI := new F8AppGUI(AppManager)
+global QuickPickerIsActive := false
 
 ; --- 2. Central Monitoring Loop ---
 SetTimer, WatchOverlays, 30
@@ -104,14 +105,27 @@ return
 
 ; Capture Settings (Alt + 2)
 !2::
+    global QuickPickerIsActive
+    if (QuickPickerIsActive) {
+        AppGUI.HideQuickPicker()
+        return
+    }
+    KeyWait, Alt
     AppManager.CaptureSettings()
 return
 
 ; Toggle snap properties (Alt + 1)
 !1::
+    global QuickPickerIsActive
+    if (QuickPickerIsActive) {
+        AppGUI.HideQuickPicker()
+        return
+    }
     hwnd := WinExist("A")
-    if (AppManager.CanManage(hwnd))
+    if (AppManager.CanManage(hwnd)) {
+        KeyWait, Alt
         AppManager.ToggleSnap(hwnd)
+    }
 return
 
 ; Transfer Display (Alt + 3)
@@ -155,25 +169,32 @@ return
     ~LButton::ToolTip
 #IfWinExist
 
-#If (IsObject(AppGUI) && AppGUI.VisibleQuickPicker != "")
+; QuickPickerIsActive flag avoids calling WinActive inside #If — prevents Alt+Tab freeze
+#IfTimeout, 50
+#If (QuickPickerIsActive)
 a::
-    AppGUI.SendQuickPickerKey("{Left}")
+    if (AppGUI.IsQuickPickerActive())
+        AppGUI.NavigateQuickPickerHorizontal("Left")
 return
 
 d::
-    AppGUI.SendQuickPickerKey("{Right}")
+    if (AppGUI.IsQuickPickerActive())
+        AppGUI.NavigateQuickPickerHorizontal("Right")
 return
 
 w::
-    AppGUI.SendQuickPickerKey("{Up}")
+    if (AppGUI.IsQuickPickerActive())
+        AppGUI.NavigateQuickPickerVertical("Up")
 return
 
 s::
-    AppGUI.SendQuickPickerKey("{Down}")
+    if (AppGUI.IsQuickPickerActive())
+        AppGUI.NavigateQuickPickerVertical("Down")
 return
 
 Space::
-    AppGUI.SendQuickPickerKey("{Enter}")
+    if (AppGUI.IsQuickPickerActive())
+        AppGUI.SendQuickPickerKey("{Enter}")
 return
 #If
 
@@ -205,6 +226,14 @@ GUICb_SaveZone:
         SetTimer, CloseToolTip, -2000
         return
     }
+    originalName := AppGUI.SelectedZoneOriginalName
+    if (originalName != "" && originalName != SelectedZoneName && AppManager.SnapZones.HasKey(SelectedZoneName)) {
+        ToolTip, Zone '%SelectedZoneName%' already exists!
+        SetTimer, CloseToolTip, -2000
+        return
+    }
+    if (originalName != "" && originalName != SelectedZoneName && AppManager.SnapZones.HasKey(originalName))
+        AppManager.DeleteZone(originalName)
     AppManager.SnapZones[SelectedZoneName] := {x: NewX, y: NewY, w: NewWidth, h: NewHeight, t: NewTransparency}
     AppManager.SaveSnapSettings()
     AppGUI.UpdateZonesList(SelectedZoneName)
@@ -215,15 +244,17 @@ return
 GUICb_DeleteZone:
     Gui, SettingsGui:Submit, NoHide
     global SelectedZoneName
-    if (SelectedZoneName = "")
+    deleteName := AppGUI.SelectedZoneOriginalName != "" ? AppGUI.SelectedZoneOriginalName : SelectedZoneName
+    if (deleteName = "")
         return
-    AppGUI.ShowConfirmDelete(SelectedZoneName)
+    AppGUI.ShowConfirmDelete(deleteName)
 return
 
 GUICb_SelectZone:
     Gui, SettingsGui:Submit, NoHide
     global ZoneList
     if (AppManager.SnapZones.HasKey(ZoneList)) {
+        AppGUI.SelectedZoneOriginalName := ZoneList
         zone := AppManager.SnapZones[ZoneList]
         GuiControl, SettingsGui:, SelectedZoneName, %ZoneList%
         GuiControl, SettingsGui:, NewX, % zone.x
@@ -316,6 +347,14 @@ GUICb_QuickPickerConfirm:
             finalName := newName
         }
         
+        ; Confirm before overwriting an existing zone
+        if (AppManager.SnapZones.HasKey(finalName)) {
+            Gui, QuickPicker:+OwnDialogs
+            MsgBox, 4, Overwrite Zone, Zone '%finalName%' already exists.`nDo you want to overwrite it?
+            IfMsgBox, No
+                return
+        }
+        
         cap := AppManager.PendingCapture
         AppManager.SnapZones[finalName] := {x: cap.x, y: cap.y, w: cap.w, h: cap.h, t: cap.t}
         AppManager.SaveSnapSettings()
@@ -338,6 +377,7 @@ GUICb_ConfirmDeleteYes:
     AppManager.DeleteZone(zone)
     AppGUI.UpdateZonesList()
     GuiControl, SettingsGui:, SelectedZoneName, 
+    AppGUI.ClearZoneSelection()
     AppGUI.HideConfirmDelete()
 return
 

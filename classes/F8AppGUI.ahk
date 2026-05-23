@@ -4,6 +4,7 @@ class F8AppGUI {
         this.Visible := false
         this.HwndIndexMap := []
         this.RefreshFn := ObjBindMethod(this, "UpdateDashboard")
+        this.SelectedZoneOriginalName := ""
         this.QuickPickerAction := ""
         this.VisibleQuickPicker := ""
         this.PendingDeleteZone := ""
@@ -29,6 +30,7 @@ class F8AppGUI {
     Show() {
         global NewX, NewY, NewWidth, NewHeight, NewTransparency
         this.Manager.LoadSnapSettings()
+        this.SelectedZoneOriginalName := ""
         
         if (!WinExist("F8 Settings")) {
             this.BuildGUI()
@@ -59,11 +61,12 @@ class F8AppGUI {
             GuiControl, SettingsGui:, NewHeight, %cH%
             GuiControl, SettingsGui:, NewTransparency, %cT%
             GuiControl, SettingsGui:, SelectedZoneName, %zoneName%
+            this.SelectedZoneOriginalName := zoneName
         }
         
         this.UpdateDashboard()
         this.UpdateZonesList()
-        Gui, SettingsGui:Show, w815 h340
+        Gui, SettingsGui:Show, w815 h430
         this.Visible := true
         
         fn := this.RefreshFn
@@ -109,14 +112,14 @@ class F8AppGUI {
         Gui, SettingsGui:Add, Button, x112 y212 w80 h26 gGUICb_Capture, Capture
         Gui, SettingsGui:Add, Button, x196 y212 w80 h26 gGUICb_DeleteZone, Delete
         
-        Gui, SettingsGui:Add, GroupBox, x12 y258 w280 h70, Saved Snap Zones
-        Gui, SettingsGui:Add, ListBox, x20 y275 w264 h45 vZoneList gGUICb_SelectZone, 
+        Gui, SettingsGui:Add, GroupBox, x12 y258 w280 h160, Saved Snap Zones
+        Gui, SettingsGui:Add, ListBox, x20 y275 w264 h135 vZoneList gGUICb_SelectZone, 
 
         ; Apps Dashboard
-        Gui, SettingsGui:Add, GroupBox, x304 y8 w495 h320, Apps Dashboard
+        Gui, SettingsGui:Add, GroupBox, x304 y8 w495 h410, Apps Dashboard
         Gui, SettingsGui:Add, Text, x320 y30 w465 h18, Manage application states, transfer displays, or ignore apps.
         Gui, SettingsGui:Add, Text, x320 y56 w280 h20 cGray vNoAppsText hidden, No active apps found.
-        Gui, SettingsGui:Add, Text, x320 y280 w280 h18 cGray vOverflowText hidden, 
+        Gui, SettingsGui:Add, Text, x320 y370 w280 h18 cGray vOverflowText hidden, 
         ; Refresh button removed as per user request (Auto-refresh enabled)
         
         Loop, 8 {
@@ -257,12 +260,20 @@ class F8AppGUI {
             ZoneString .= name . "|"
         }
         GuiControl, SettingsGui:, ZoneList, |%ZoneString%
-        if (selectMatch != "")
+        if (selectMatch != "") {
             GuiControl, SettingsGui:ChooseString, ZoneList, %selectMatch%
+            this.SelectedZoneOriginalName := selectMatch
+        }
+    }
+
+    ClearZoneSelection() {
+        this.SelectedZoneOriginalName := ""
+        GuiControl, SettingsGui:Choose, ZoneList, 0
     }
     
     ShowQuickPicker(action, appName:="") {
-        global QuickPickerList
+        global QuickPickerList, QuickPickerIsActive
+        QuickPickerIsActive := true
         this.QuickPickerAction := action
         this.VisibleQuickPicker := action
         this.BuildQuickPickerItems(action)
@@ -281,17 +292,37 @@ class F8AppGUI {
         ZoneString := this.BuildQuickPickerListString()
         
         Gui, QuickPicker:Add, ListBox, x10 y10 w200 h120 vQuickPickerList gGUICb_QuickPickerSelect, %ZoneString%
-        Gui, QuickPicker:Add, Button, x10 y140 w95 h26 default gGUICb_QuickPickerConfirm, Confirm
+        Gui, QuickPicker:Add, Button, x10 y140 w95 h26 gGUICb_QuickPickerConfirm, Confirm
         Gui, QuickPicker:Add, Button, x115 y140 w95 h26 gGUICb_QuickPickerCancel, Cancel
         
-        ; Position near mouse
-        CoordMode, Mouse, Screen
-        MouseGetPos, mx, my
-        Gui, QuickPicker:Show, x%mx% y%my% w220 h175
+        Gui, QuickPicker:Show, Hide AutoSize
+        WinGetPos, , , pickerW, pickerH, ahk_id %pickerHwnd%
+        if (pickerW = "" || pickerH = "") {
+            pickerW := 236
+            pickerH := 214
+        }
+
+        pos := this.GetQuickPickerShowPosition(pickerW, pickerH)
+        showX := pos.x
+        showY := pos.y
+        Gui, QuickPicker:Show, x%showX% y%showY% AutoSize
+
+        WinGetPos, , , actualW, actualH, ahk_id %pickerHwnd%
+        if (actualW != "" && actualH != "") {
+            finalPos := this.GetQuickPickerShowPosition(actualW, actualH)
+            finalX := finalPos.x
+            finalY := finalPos.y
+            WinMove, ahk_id %pickerHwnd%,, %finalX%, %finalY%
+        }
         this.SetQuickPickerSelection(this.GetInitialQuickPickerIndex())
+        ControlFocus, ListBox1, ahk_id %pickerHwnd%
+        ; Flush any lingering logical Alt modifier state so a/s/w/d fire as plain keys immediately
+        SendInput {Alt Up}
     }
     
     HideQuickPicker() {
+        global QuickPickerIsActive
+        QuickPickerIsActive := false
         Try Gui, QuickPicker:Destroy
         this.VisibleQuickPicker := ""
         this.QuickPickerHwnd := ""
@@ -302,13 +333,77 @@ class F8AppGUI {
         }
     }
 
+    IsQuickPickerActive() {
+        hwnd := this.QuickPickerHwnd
+        return (this.VisibleQuickPicker != "" && hwnd && WinActive("ahk_id " . hwnd))
+    }
+
     SendQuickPickerKey(key) {
         hwnd := this.QuickPickerHwnd
         if (!hwnd || !WinExist("ahk_id " . hwnd))
             return
 
-        ControlFocus, ListBox1, % "ahk_id " . hwnd
-        ControlSend, ListBox1, %key%, % "ahk_id " . hwnd
+        ; Check which control is focused — Button2 = Cancel, everything else = Confirm
+        ControlGetFocus, focusedControl, ahk_id %hwnd%
+        if (focusedControl = "Button2")
+            Gosub, GUICb_QuickPickerCancel
+        else
+            Gosub, GUICb_QuickPickerConfirm
+    }
+
+    NavigateQuickPickerHorizontal(direction) {
+        hwnd := this.QuickPickerHwnd
+        if (!hwnd || !WinExist("ahk_id " . hwnd))
+            return
+
+        ; a (Left) = focus Confirm, d (Right) = focus Cancel — visual selection only, Space executes
+        targetControl := (direction = "Left") ? "Button1" : "Button2"
+        ControlFocus, %targetControl%, ahk_id %hwnd%
+    }
+
+    NavigateQuickPickerVertical(direction) {
+        hwnd := this.QuickPickerHwnd
+        if (!hwnd || !WinExist("ahk_id " . hwnd))
+            return
+
+        ; Directly manipulate the selection index — no focus dependency
+        currentIndex := this.GetQuickPickerSelectionIndex()
+        if (currentIndex = 0)
+            return
+
+        total := this.QuickPickerItems.Length()
+        if (direction = "Up") {
+            newIndex := (currentIndex > 1) ? currentIndex - 1 : 1
+        } else {
+            newIndex := (currentIndex < total) ? currentIndex + 1 : total
+        }
+
+        if (newIndex != currentIndex)
+            this.SetQuickPickerSelection(newIndex)
+    }
+
+    GetQuickPickerShowPosition(pickerW, pickerH) {
+        hwnd := this.Manager.PendingHwnd
+        if (hwnd && WinExist("ahk_id " . hwnd)) {
+            hMon := DllCall("MonitorFromWindow", "Ptr", hwnd, "UInt", 2, "Ptr")
+            if (hMon) {
+                VarSetCapacity(mi, 40, 0)
+                NumPut(40, mi, 0, "UInt")
+                if (DllCall("GetMonitorInfo", "Ptr", hMon, "Ptr", &mi)) {
+                    workLeft := NumGet(mi, 20, "Int")
+                    workTop := NumGet(mi, 24, "Int")
+                    workRight := NumGet(mi, 28, "Int")
+                    workBottom := NumGet(mi, 32, "Int")
+                    return {x: workLeft + ((workRight - workLeft - pickerW) // 2), y: workTop + ((workBottom - workTop - pickerH) // 2)}
+                }
+            }
+        }
+
+        CoordMode, Mouse, Screen
+        MouseGetPos, mouseX, mouseY
+        x := mouseX - (pickerW // 2)
+        y := mouseY - (pickerH // 2)
+        return {x: x, y: y}
     }
 
     BuildQuickPickerItems(action) {
