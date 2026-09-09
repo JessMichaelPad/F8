@@ -2,7 +2,7 @@
   <!-- MSI Package for Quick Snap F8 -->
   <Package Name="F8" 
            Manufacturer="JessMichaelPad" 
-           Version="1.0.4" 
+           Version="1.0.9" 
            UpgradeCode="d7b3a9e2-4f8c-4b1a-9d2e-5c6b7a8d9e0f"
            Scope="perMachine">
     

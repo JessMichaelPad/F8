@@ -40,6 +40,13 @@ IfExist, %iconPath%
 Else
     Menu, Tray, Icon, shell32.dll, 44
 
+; Keep the tray menu focused on the app's three primary actions.
+Menu, Tray, NoStandard
+Menu, Tray, Add, Exit, TrayExit
+Menu, Tray, Add, Pause, TrayPause
+Menu, Tray, Add, Open Menu, TrayOpenMenu
+Menu, Tray, Default, Open Menu
+
 ; Load icon handle for GUI windows
 global hIconSmall := DllCall("LoadImage", "UInt", 0, "Str", iconPath, "UInt", 1, "Int", 16, "Int", 16, "UInt", 0x10)
 global hIconBig := DllCall("LoadImage", "UInt", 0, "Str", iconPath, "UInt", 1, "Int", 32, "Int", 32, "UInt", 0x10)
@@ -48,12 +55,18 @@ global hIconBig := DllCall("LoadImage", "UInt", 0, "Str", iconPath, "UInt", 1, "
 global AppManager := new WindowManager()
 global AppGUI := new F8AppGUI(AppManager)
 global QuickPickerIsActive := false
+global Alt12HotkeysDisabled := false
+global Alt3HotkeyDisabled := false
+global MenuHotkeyDisabled := false
 
 ; --- 2. Central Monitoring Loop ---
 SetTimer, WatchOverlays, 30
 
 WatchOverlays:
     AppManager.MonitorOverlays()
+    Alt12HotkeysDisabled := AppManager.ShouldDisableAlt12(WinExist("A"))
+    Alt3HotkeyDisabled := AppManager.ShouldDisableAlt3(WinExist("A"))
+    MenuHotkeyDisabled := AppManager.ShouldDisableMenuHotkey(WinExist("A"))
 return
 
 ExitFunc() {
@@ -73,7 +86,9 @@ LogMsg(msg) {
 ; -------------------------------------------------------------------------
 
 ; Toggle GUI visibility (Alt + `)
+#If (!MenuHotkeyDisabled)
 !`::AppGUI.Toggle()
+#If
 
 ; Increase transparency (Alt + UP)
 !UP::
@@ -96,6 +111,13 @@ return
         AppManager.ToggleLock(hwnd)
 return
 
+; Toggle borderless windowed mode (Alt + B)
+!b::
+    hwnd := WinExist("A")
+    if (AppManager.CanManage(hwnd))
+        AppManager.ToggleBorderless(hwnd)
+return
+
 ; Toggle window Always On Top / Pin (Alt + P)
 !p::
     hwnd := WinExist("A")
@@ -104,6 +126,7 @@ return
 return
 
 ; Capture Settings (Alt + 2)
+#If (!Alt12HotkeysDisabled)
 !2::
     global QuickPickerIsActive
     if (QuickPickerIsActive) {
@@ -129,11 +152,13 @@ return
 return
 
 ; Transfer Display (Alt + 3)
+#If (!Alt3HotkeyDisabled)
 !3::
     hwnd := WinExist("A")
     if (AppManager.CanManage(hwnd))
         AppManager.TransferDisplay(hwnd)
 return
+#If
 
 ; Information Display (Alt + I)
 !i::
@@ -148,6 +173,7 @@ return
     Alt + H: Help
     Alt + P: Pin / Always On Top (Red Dot)
     Alt + L: Lock Window (Blue Lock)
+    Alt + B: Toggle Borderless Windowed Mode
     Alt + 1: Snap Menu (Select Zone)
     Quick Snap: W/A/S/D move, Space confirms
     Alt + 2: Capture Menu (Save Current)
@@ -163,6 +189,20 @@ return
 
 CloseToolTip:
     ToolTip
+return
+
+; --- System Tray Callbacks ---
+TrayExit:
+    ExitApp
+return
+
+TrayPause:
+    Menu, Tray, ToggleCheck, Pause
+    Pause, Toggle, 1
+return
+
+TrayOpenMenu:
+    AppGUI.Show()
 return
 
 #IfWinExist ahk_class tooltips_class32
@@ -291,15 +331,36 @@ GUICb_Transfer:
     }
 return
 
-GUICb_Ignore:
-    if RegExMatch(A_GuiControl, "^IgnoreBtn_(\d+)$", m) {
+GUICb_ToggleAlt12:
+    if RegExMatch(A_GuiControl, "^Alt12Btn_(\d+)$", m) {
         idx := m1 + 0
         if (AppGUI.HwndIndexMap.HasKey(idx)) {
-            AppManager.ToggleIgnoreStatus(AppGUI.HwndIndexMap[idx])
+            AppManager.ToggleAlt12Status(AppGUI.HwndIndexMap[idx])
             AppGUI.UpdateDashboard()
         }
     }
 return
+
+GUICb_ToggleAlt3:
+    if RegExMatch(A_GuiControl, "^Alt3Btn_(\d+)$", m) {
+        idx := m1 + 0
+        if (AppGUI.HwndIndexMap.HasKey(idx)) {
+            AppManager.ToggleAlt3Status(AppGUI.HwndIndexMap[idx])
+            AppGUI.UpdateDashboard()
+        }
+    }
+return
+
+GUICb_ToggleMenuHotkey:
+    if RegExMatch(A_GuiControl, "^MenuHotkeyBtn_(\d+)$", m) {
+        idx := m1 + 0
+        if (AppGUI.HwndIndexMap.HasKey(idx)) {
+            AppManager.ToggleMenuHotkeyStatus(AppGUI.HwndIndexMap[idx])
+            AppGUI.UpdateDashboard()
+        }
+    }
+return
+#If
 
 ; --- Quick Picker Callbacks ---
 GUICb_QuickPickerSelect:

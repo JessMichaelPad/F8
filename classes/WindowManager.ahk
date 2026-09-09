@@ -2,36 +2,88 @@ class WindowManager {
     __New() {
         this.Overlays := {}
         this.WindowStates := {}
-        this.ExcludedApps := {}
+        this.DisabledAlt12Apps := {}
+        this.DisabledAlt3Apps := {}
+        this.DisabledMenuHotkeyApps := {}
         
         this.SnapZones := {}
         this.LoadSnapSettings()
-        this.LoadExcludedApps()
+        this.LoadDisabledAlt12Apps()
+        this.LoadDisabledAlt3Apps()
+        this.LoadDisabledMenuHotkeyApps()
     }
     
     ; --- File I/O ---
-    LoadExcludedApps() {
+    LoadDisabledAlt12Apps() {
         global SettingsPath
-        IniRead, AppList, %SettingsPath%, ExcludedApps, List, %A_Space%
+        IniRead, AppList, %SettingsPath%, DisabledAlt12Apps, List, %A_Space%
         if (AppList != "") {
             Loop, Parse, AppList, |
             {
                 if (A_LoopField != "")
-                    this.ExcludedApps[A_LoopField] := true
+                    this.DisabledAlt12Apps[A_LoopField] := true
             }
         }
     }
-    
-    SaveExcludedApps() {
+
+    SaveDisabledAlt12Apps() {
         OutList := ""
-        for procName, _ in this.ExcludedApps {
+        for procName, _ in this.DisabledAlt12Apps {
             if (OutList = "")
                 OutList := procName
             else
                 OutList .= "|" . procName
         }
         global SettingsPath
-        IniWrite, %OutList%, %SettingsPath%, ExcludedApps, List
+        IniWrite, %OutList%, %SettingsPath%, DisabledAlt12Apps, List
+    }
+
+    LoadDisabledAlt3Apps() {
+        global SettingsPath
+        IniRead, AppList, %SettingsPath%, DisabledAlt3Apps, List, %A_Space%
+        if (AppList != "") {
+            Loop, Parse, AppList, |
+            {
+                if (A_LoopField != "")
+                    this.DisabledAlt3Apps[A_LoopField] := true
+            }
+        }
+    }
+
+    SaveDisabledAlt3Apps() {
+        OutList := ""
+        for procName, _ in this.DisabledAlt3Apps {
+            if (OutList = "")
+                OutList := procName
+            else
+                OutList .= "|" . procName
+        }
+        global SettingsPath
+        IniWrite, %OutList%, %SettingsPath%, DisabledAlt3Apps, List
+    }
+
+    LoadDisabledMenuHotkeyApps() {
+        global SettingsPath
+        IniRead, AppList, %SettingsPath%, DisabledMenuHotkeyApps, List, %A_Space%
+        if (AppList != "") {
+            Loop, Parse, AppList, |
+            {
+                if (A_LoopField != "")
+                    this.DisabledMenuHotkeyApps[A_LoopField] := true
+            }
+        }
+    }
+
+    SaveDisabledMenuHotkeyApps() {
+        OutList := ""
+        for procName, _ in this.DisabledMenuHotkeyApps {
+            if (OutList = "")
+                OutList := procName
+            else
+                OutList .= "|" . procName
+        }
+        global SettingsPath
+        IniWrite, %OutList%, %SettingsPath%, DisabledMenuHotkeyApps, List
     }
     
     LoadSnapSettings() {
@@ -83,13 +135,6 @@ class WindowManager {
         if (!hwnd)
             return false
             
-        WinGet, procName, ProcessName, ahk_id %hwnd%
-        if (this.ExcludedApps.HasKey(procName)) {
-            ToolTip, % "This application (" . procName . ") is currently ignored."
-            SetTimer, CloseToolTip, -1600
-            return false
-        }
-        
         if (this.IsBlockedSystemWindow(hwnd)) {
             ToolTip, % "Protected system UI cannot be pinned, locked, or snapped."
             SetTimer, CloseToolTip, -1600
@@ -97,6 +142,27 @@ class WindowManager {
         }
         
         return true
+    }
+
+    ShouldDisableAlt12(hwnd) {
+        if (!hwnd)
+            return false
+        WinGet, procName, ProcessName, ahk_id %hwnd%
+        return this.DisabledAlt12Apps.HasKey(procName)
+    }
+
+    ShouldDisableAlt3(hwnd) {
+        if (!hwnd)
+            return false
+        WinGet, procName, ProcessName, ahk_id %hwnd%
+        return this.DisabledAlt3Apps.HasKey(procName)
+    }
+
+    ShouldDisableMenuHotkey(hwnd) {
+        if (!hwnd)
+            return false
+        WinGet, procName, ProcessName, ahk_id %hwnd%
+        return this.DisabledMenuHotkeyApps.HasKey(procName)
     }
     
     IsBlockedSystemWindow(hwnd) {
@@ -125,20 +191,36 @@ class WindowManager {
     
     GetState(hwnd) {
         if (!this.WindowStates.HasKey(hwnd))
-            this.WindowStates[hwnd] := {isSnapped: false, lastTrigger: "", OW: "", OH: "", OX: "", OY: ""}
+            this.WindowStates[hwnd] := {isSnapped: false, isBorderless: false, lastTrigger: "", OW: "", OH: "", OX: "", OY: ""}
         return this.WindowStates[hwnd]
     }
     
     ; --- Actions ---
-    ToggleIgnoreStatus(hwnd) {
+    ToggleAlt12Status(hwnd) {
         WinGet, procName, ProcessName, ahk_id %hwnd%
-        if (this.ExcludedApps.HasKey(procName)) {
-            this.ExcludedApps.Delete(procName)
-        } else {
-            this.RevertWindow(hwnd)
-            this.ExcludedApps[procName] := true
-        }
-        this.SaveExcludedApps()
+        if (this.DisabledAlt12Apps.HasKey(procName))
+            this.DisabledAlt12Apps.Delete(procName)
+        else
+            this.DisabledAlt12Apps[procName] := true
+        this.SaveDisabledAlt12Apps()
+    }
+
+    ToggleAlt3Status(hwnd) {
+        WinGet, procName, ProcessName, ahk_id %hwnd%
+        if (this.DisabledAlt3Apps.HasKey(procName))
+            this.DisabledAlt3Apps.Delete(procName)
+        else
+            this.DisabledAlt3Apps[procName] := true
+        this.SaveDisabledAlt3Apps()
+    }
+
+    ToggleMenuHotkeyStatus(hwnd) {
+        WinGet, procName, ProcessName, ahk_id %hwnd%
+        if (this.DisabledMenuHotkeyApps.HasKey(procName))
+            this.DisabledMenuHotkeyApps.Delete(procName)
+        else
+            this.DisabledMenuHotkeyApps[procName] := true
+        this.SaveDisabledMenuHotkeyApps()
     }
     
     TransferDisplay(hwnd) {
@@ -164,6 +246,87 @@ class WindowManager {
         state := this.GetState(hwnd)
         state.lastTrigger := "lock"
         this.UpdateOverlay(hwnd)
+    }
+
+    ToggleBorderless(hwnd) {
+        if (!WinExist("ahk_id " hwnd))
+            return
+
+        state := this.GetState(hwnd)
+        if (state.isBorderless) {
+            this.RestoreBorderless(hwnd)
+            state.lastTrigger := ""
+            this.UpdateOverlay(hwnd)
+            return
+        }
+
+        ; Save the complete window state so Alt+B can restore the exact style,
+        ; position, size, and maximized state later.
+        WinGet, style, Style, ahk_id %hwnd%
+        WinGet, exStyle, ExStyle, ahk_id %hwnd%
+        WinGet, minMaxState, MinMax, ahk_id %hwnd%
+        WinGetPos, x, y, w, h, ahk_id %hwnd%
+
+        originalStyle := style
+        originalExStyle := exStyle
+        style &= ~(0x00C00000 | 0x00040000 | 0x00020000 | 0x00010000 | 0x00080000) ; caption, resize frame, min/max, system menu
+        exStyle &= ~(0x00000001 | 0x00000100 | 0x00000200 | 0x00020000) ; modal, window, client, static edges
+
+        if (this.SetWindowStyle(hwnd, style, exStyle)) {
+            state.isBorderless := true
+            state.borderlessSavedStyle := originalStyle
+            state.borderlessSavedExStyle := originalExStyle
+            state.borderlessMinMax := minMaxState
+            state.borderlessX := x, state.borderlessY := y
+            state.borderlessW := w, state.borderlessH := h
+
+            ; Match NoMoreBorder: fill the monitor containing the active window.
+            if (this.GetMonitorBounds(hwnd, monitorX, monitorY, monitorW, monitorH))
+                DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", monitorX, "Int", monitorY, "Int", monitorW, "Int", monitorH, "UInt", 0x0024)
+
+            state.lastTrigger := "borderless"
+            this.UpdateOverlay(hwnd)
+        }
+    }
+
+    RestoreBorderless(hwnd) {
+        state := this.GetState(hwnd)
+        if (!state.isBorderless)
+            return
+
+        this.SetWindowStyle(hwnd, state.borderlessSavedStyle, state.borderlessSavedExStyle)
+        DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", state.borderlessX, "Int", state.borderlessY, "Int", state.borderlessW, "Int", state.borderlessH, "UInt", 0x0024)
+        if (state.borderlessMinMax = 1)
+            WinMaximize, ahk_id %hwnd%
+        else if (state.borderlessMinMax = -1)
+            WinMinimize, ahk_id %hwnd%
+        state.isBorderless := false
+    }
+
+    SetWindowStyle(hwnd, style, exStyle) {
+        setStyle := A_PtrSize = 8 ? "SetWindowLongPtr" : "SetWindowLong"
+        DllCall(setStyle, "Ptr", hwnd, "Int", -16, "UInt", style)
+        DllCall(setStyle, "Ptr", hwnd, "Int", -20, "UInt", exStyle)
+        return DllCall("SetWindowPos", "Ptr", hwnd, "Ptr", 0, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", 0x0027)
+    }
+
+    GetMonitorBounds(hwnd, ByRef x, ByRef y, ByRef w, ByRef h) {
+        hMon := DllCall("MonitorFromWindow", "Ptr", hwnd, "UInt", 2, "Ptr")
+        if (!hMon)
+            return false
+
+        VarSetCapacity(mi, 40, 0)
+        NumPut(40, mi, 0, "UInt")
+        if !DllCall("GetMonitorInfo", "Ptr", hMon, "Ptr", &mi)
+            return false
+
+        x := NumGet(mi, 4, "Int")
+        y := NumGet(mi, 8, "Int")
+        right := NumGet(mi, 12, "Int")
+        bottom := NumGet(mi, 16, "Int")
+        w := right - x
+        h := bottom - y
+        return (w > 0 && h > 0)
     }
     
     ModifyTransparency(hwnd, dir) {
@@ -290,6 +453,13 @@ class WindowManager {
             
         state := this.GetState(hwnd)
         trigger := state.lastTrigger
+
+        if (state.isBorderless) {
+            this.RestoreBorderless(hwnd)
+            state.lastTrigger := ""
+            this.UpdateOverlay(hwnd)
+            return
+        }
         
         if (trigger = "snap" && state.isSnapped) {
             this.RevertSnapped(hwnd)
@@ -460,8 +630,7 @@ class WindowManager {
         if (!hwnd)
             return
             
-        WinGet, procName, ProcessName, ahk_id %hwnd%
-        if (this.IsBlockedSystemWindow(hwnd) || this.ExcludedApps.HasKey(procName)) {
+        if (this.IsBlockedSystemWindow(hwnd)) {
             if (this.Overlays.HasKey(hwnd)) {
                 this.Overlays[hwnd].Destroy()
                 this.Overlays.Delete(hwnd)
@@ -499,12 +668,9 @@ class WindowManager {
                 continue
             }
             
-            WinGet, procName, ProcessName, ahk_id %targetHwnd%
-            if (this.IsBlockedSystemWindow(targetHwnd) || this.ExcludedApps.HasKey(procName)) {
-                if (!this.ExcludedApps.HasKey(procName)) {
-                    WinSet, ExStyle, -0x20, ahk_id %targetHwnd%
-                    WinSet, Transparent, 255, ahk_id %targetHwnd%
-                }
+            if (this.IsBlockedSystemWindow(targetHwnd)) {
+                WinSet, ExStyle, -0x20, ahk_id %targetHwnd%
+                WinSet, Transparent, 255, ahk_id %targetHwnd%
                 overlayObj.Destroy()
                 this.Overlays.Delete(targetHwnd)
                 this.WindowStates.Delete(targetHwnd)

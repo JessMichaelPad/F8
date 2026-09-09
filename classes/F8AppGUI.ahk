@@ -66,7 +66,7 @@ class F8AppGUI {
         
         this.UpdateDashboard()
         this.UpdateZonesList()
-        Gui, SettingsGui:Show, w815 h430
+        Gui, SettingsGui:Show, w900 h430
         this.Visible := true
         
         fn := this.RefreshFn
@@ -82,8 +82,12 @@ class F8AppGUI {
         global RevertBtn_5, RevertBtn_6, RevertBtn_7, RevertBtn_8
         global TransferBtn_1, TransferBtn_2, TransferBtn_3, TransferBtn_4
         global TransferBtn_5, TransferBtn_6, TransferBtn_7, TransferBtn_8
-        global IgnoreBtn_1, IgnoreBtn_2, IgnoreBtn_3, IgnoreBtn_4
-        global IgnoreBtn_5, IgnoreBtn_6, IgnoreBtn_7, IgnoreBtn_8
+        global Alt12Btn_1, Alt12Btn_2, Alt12Btn_3, Alt12Btn_4
+        global Alt12Btn_5, Alt12Btn_6, Alt12Btn_7, Alt12Btn_8
+        global Alt3Btn_1, Alt3Btn_2, Alt3Btn_3, Alt3Btn_4
+        global Alt3Btn_5, Alt3Btn_6, Alt3Btn_7, Alt3Btn_8
+        global MenuHotkeyBtn_1, MenuHotkeyBtn_2, MenuHotkeyBtn_3, MenuHotkeyBtn_4
+        global MenuHotkeyBtn_5, MenuHotkeyBtn_6, MenuHotkeyBtn_7, MenuHotkeyBtn_8
         global ZoneList, SelectedZoneName
         
         Gui, SettingsGui:New, +AlwaysOnTop -MaximizeBox -MinimizeBox +HwndSettingsHwnd, F8 Settings
@@ -116,8 +120,8 @@ class F8AppGUI {
         Gui, SettingsGui:Add, ListBox, x20 y275 w264 h135 vZoneList gGUICb_SelectZone, 
 
         ; Apps Dashboard
-        Gui, SettingsGui:Add, GroupBox, x304 y8 w495 h410, Apps Dashboard
-        Gui, SettingsGui:Add, Text, x320 y30 w465 h18, Manage application states, transfer displays, or ignore apps.
+        Gui, SettingsGui:Add, GroupBox, x304 y8 w580 h410, Apps Dashboard
+        Gui, SettingsGui:Add, Text, x320 y30 w550 h18, Manage per-app shortcuts or run window actions.
         Gui, SettingsGui:Add, Text, x320 y56 w280 h20 cGray vNoAppsText hidden, No active apps found.
         Gui, SettingsGui:Add, Text, x320 y370 w280 h18 cGray vOverflowText hidden, 
         ; Refresh button removed as per user request (Auto-refresh enabled)
@@ -125,10 +129,12 @@ class F8AppGUI {
         Loop, 8 {
             rY := 56 + ((A_Index - 1) * 27)
             bY := rY - 2
-            Gui, SettingsGui:Add, Text, x320 y%rY% w280 h20 +0x200 vAppRowText_%A_Index% hidden, 
-            Gui, SettingsGui:Add, Button, x610 y%bY% w55 h24 gGUICb_Revert vRevertBtn_%A_Index% hidden, Revert
-            Gui, SettingsGui:Add, Button, x670 y%bY% w55 h24 gGUICb_Transfer vTransferBtn_%A_Index% hidden, Transfer
-            Gui, SettingsGui:Add, Button, x730 y%bY% w55 h24 gGUICb_Ignore vIgnoreBtn_%A_Index% hidden, Ignore
+            Gui, SettingsGui:Add, Text, x320 y%rY% w170 h20 +0x200 vAppRowText_%A_Index% hidden,
+            Gui, SettingsGui:Add, Button, x495 y%bY% w46 h24 gGUICb_Revert vRevertBtn_%A_Index% hidden, Revert
+            Gui, SettingsGui:Add, Button, x545 y%bY% w55 h24 gGUICb_Transfer vTransferBtn_%A_Index% hidden, Transfer
+            Gui, SettingsGui:Add, Button, x604 y%bY% w82 h24 gGUICb_ToggleAlt12 vAlt12Btn_%A_Index% hidden, Alt 1/2: On
+            Gui, SettingsGui:Add, Button, x690 y%bY% w75 h24 gGUICb_ToggleAlt3 vAlt3Btn_%A_Index% hidden, Alt 3: On
+            Gui, SettingsGui:Add, Button, x769 y%bY% w100 h24 gGUICb_ToggleMenuHotkey vMenuHotkeyBtn_%A_Index% hidden, Alt+``: On
         }
     }
     
@@ -140,8 +146,12 @@ class F8AppGUI {
         global RevertBtn_5, RevertBtn_6, RevertBtn_7, RevertBtn_8
         global TransferBtn_1, TransferBtn_2, TransferBtn_3, TransferBtn_4
         global TransferBtn_5, TransferBtn_6, TransferBtn_7, TransferBtn_8
-        global IgnoreBtn_1, IgnoreBtn_2, IgnoreBtn_3, IgnoreBtn_4
-        global IgnoreBtn_5, IgnoreBtn_6, IgnoreBtn_7, IgnoreBtn_8
+        global Alt12Btn_1, Alt12Btn_2, Alt12Btn_3, Alt12Btn_4
+        global Alt12Btn_5, Alt12Btn_6, Alt12Btn_7, Alt12Btn_8
+        global Alt3Btn_1, Alt3Btn_2, Alt3Btn_3, Alt3Btn_4
+        global Alt3Btn_5, Alt3Btn_6, Alt3Btn_7, Alt3Btn_8
+        global MenuHotkeyBtn_1, MenuHotkeyBtn_2, MenuHotkeyBtn_3, MenuHotkeyBtn_4
+        global MenuHotkeyBtn_5, MenuHotkeyBtn_6, MenuHotkeyBtn_7, MenuHotkeyBtn_8
         
         this.HwndIndexMap := []
         appDataObjects := []
@@ -166,7 +176,9 @@ class F8AppGUI {
                 continue
                 
             WinGet, proc, ProcessName, ahk_id %this_id%
-            isExcluded := this.Manager.ExcludedApps.HasKey(proc)
+            isAlt12Disabled := this.Manager.DisabledAlt12Apps.HasKey(proc)
+            isAlt3Disabled := this.Manager.DisabledAlt3Apps.HasKey(proc)
+            isMenuHotkeyDisabled := this.Manager.DisabledMenuHotkeyApps.HasKey(proc)
             
             WinGet, es, ExStyle, ahk_id %this_id%
             isPinned := (es & 0x8)
@@ -174,22 +186,18 @@ class F8AppGUI {
             isSnapped := (this.Manager.WindowStates.HasKey(this_id) && this.Manager.WindowStates[this_id].isSnapped)
             
             prefix := ""
-            if (isExcluded)
-                prefix .= "[Ignored] "
-            else {
-                if (isPinned)
-                    prefix .= "[Pin] "
-                if (isLocked)
-                    prefix .= "[Lock] "
-                if (isSnapped)
-                    prefix .= "[Snap] "
-            }
+            if (isPinned)
+                prefix .= "[Pin] "
+            if (isLocked)
+                prefix .= "[Lock] "
+            if (isSnapped)
+                prefix .= "[Snap] "
                 
             renderTitle := prefix . this_title
-            if (StrLen(renderTitle) > 34)
-                renderTitle := SubStr(renderTitle, 1, 31) . "..."
+            if (StrLen(renderTitle) > 24)
+                renderTitle := SubStr(renderTitle, 1, 21) . "..."
                 
-            obj := {hwnd: this_id, titleLower: Format("{:L}", this_title), renderTitle: renderTitle, isExcluded: isExcluded, isPinned: isPinned, isLocked: isLocked, isSnapped: isSnapped}
+            obj := {hwnd: this_id, titleLower: Format("{:L}", this_title), renderTitle: renderTitle, isAlt12Disabled: isAlt12Disabled, isAlt3Disabled: isAlt3Disabled, isMenuHotkeyDisabled: isMenuHotkeyDisabled, isPinned: isPinned, isLocked: isLocked, isSnapped: isSnapped}
             appDataObjects.Push(obj)
         }
         
@@ -219,14 +227,22 @@ class F8AppGUI {
             
             this.HwndIndexMap[displayed] := appObj.hwnd
             
-            if (!appObj.isExcluded && (appObj.isPinned || appObj.isLocked || appObj.isSnapped))
+            if (appObj.isPinned || appObj.isLocked || appObj.isSnapped)
                 GuiControl, SettingsGui:Show, RevertBtn_%displayed%
             else
                 GuiControl, SettingsGui:Hide, RevertBtn_%displayed%
                 
-            BtnText := appObj.isExcluded ? "Unignore" : "Ignore"
-            GuiControl, SettingsGui:, IgnoreBtn_%displayed%, %BtnText%
-            GuiControl, SettingsGui:Show, IgnoreBtn_%displayed%
+            Alt12Text := appObj.isAlt12Disabled ? "Alt 1/2: Off" : "Alt 1/2: On"
+            GuiControl, SettingsGui:, Alt12Btn_%displayed%, %Alt12Text%
+            GuiControl, SettingsGui:Show, Alt12Btn_%displayed%
+
+            Alt3Text := appObj.isAlt3Disabled ? "Alt 3: Off" : "Alt 3: On"
+            GuiControl, SettingsGui:, Alt3Btn_%displayed%, %Alt3Text%
+            GuiControl, SettingsGui:Show, Alt3Btn_%displayed%
+
+            MenuHotkeyText := appObj.isMenuHotkeyDisabled ? "Alt+``: Off" : "Alt+``: On"
+            GuiControl, SettingsGui:, MenuHotkeyBtn_%displayed%, %MenuHotkeyText%
+            GuiControl, SettingsGui:Show, MenuHotkeyBtn_%displayed%
         }
         
         loopIdx := displayed + 1
@@ -234,7 +250,9 @@ class F8AppGUI {
             GuiControl, SettingsGui:Hide, AppRowText_%loopIdx%
             GuiControl, SettingsGui:Hide, RevertBtn_%loopIdx%
             GuiControl, SettingsGui:Hide, TransferBtn_%loopIdx%
-            GuiControl, SettingsGui:Hide, IgnoreBtn_%loopIdx%
+            GuiControl, SettingsGui:Hide, Alt12Btn_%loopIdx%
+            GuiControl, SettingsGui:Hide, Alt3Btn_%loopIdx%
+            GuiControl, SettingsGui:Hide, MenuHotkeyBtn_%loopIdx%
             loopIdx++
         }
         
